@@ -48,7 +48,10 @@ import (
 
 var (
 	blockInsertTimer = metrics.NewRegisteredTimer("chain/inserts", nil)
-
+	blockValidateBodyTimer = metrics.NewRegisteredTimer("chain/validateBody", nil)
+	blockValidateStateTimer = metrics.NewRegisteredTimer("chain/validateState", nil)
+	blockProcessingTimer = metrics.NewRegisteredTimer("chain/processing", nil)
+	blockVerifyHeadersTimer = metrics.NewRegisteredTimer("chain/verifyState", nil)
 	ErrNoGenesis = errors.New("Genesis not found in chain")
 )
 
@@ -1075,8 +1078,11 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 		headers[i] = block.Header()
 		seals[i] = true
 	}
+
+	verifyStart := time.Now()
 	abort, results := bc.engine.VerifyHeaders(bc, headers, seals)
 	defer close(abort)
+	blockVerifyHeadersTimer.UpdateSince(verifyStart)
 
 	// Start a parallel signature recovery (signer will fluke on fork transition, minimal perf loss)
 	senderCacher.recoverFromBlocks(types.MakeSigner(bc.chainConfig, chain[0].Number()), chain)
@@ -1100,6 +1106,9 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 		if err == nil {
 			err = bc.Validator().ValidateBody(block)
 		}
+
+		blockValidateBodyTimer.UpdateSince(bstart)
+
 		switch {
 		case err == ErrKnownBlock:
 			// Block and state both already known. However if the current block is below
@@ -1164,6 +1173,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 		}
 		// Create a new statedb using the parent block and report an
 		// error if it fails.
+		// createStatedbFromParent := time.Now()
 		var parent *types.Block
 		if i == 0 {
 			parent = bc.GetBlock(block.ParentHash(), block.NumberU64()-1)
@@ -1174,18 +1184,26 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 		if err != nil {
 			return i, events, coalescedLogs, err
 		}
+		// blockStatedbFromParentTimer = UpdateSince(createStatedbFromParent)
+
+		processStart := time.Now()
 		// Process block using the parent state as reference point.
 		receipts, logs, usedGas, err := bc.processor.Process(block, state, bc.vmConfig)
 		if err != nil {
 			bc.reportBlock(block, receipts, err)
 			return i, events, coalescedLogs, err
 		}
+		blockProcessingTimer = UpdateSince(processStart)
+
+		validateStateStart := time.Now()
 		// Validate the state using the default validator
 		err = bc.Validator().ValidateState(block, parent, state, receipts, usedGas)
 		if err != nil {
 			bc.reportBlock(block, receipts, err)
 			return i, events, coalescedLogs, err
 		}
+		blockValidateStateTimer = UpdateSince(validateStateStart)
+
 		proctime := time.Since(bstart)
 
 		// Write the block to the chain and get the status.
