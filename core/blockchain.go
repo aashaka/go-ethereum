@@ -1184,7 +1184,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 		if err != nil {
 			return i, events, coalescedLogs, err
 		}
-		// blockStatedbFromParentTimer = UpdateSince(createStatedbFromParent)
+		// blockStatedbFromParentTimer.UpdateSince(createStatedbFromParent)
 
 		processStart := time.Now()
 		// Process block using the parent state as reference point.
@@ -1193,7 +1193,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 			bc.reportBlock(block, receipts, err)
 			return i, events, coalescedLogs, err
 		}
-		blockProcessingTimer = UpdateSince(processStart)
+		blockProcessingTimer.UpdateSince(processStart)
 
 		validateStateStart := time.Now()
 		// Validate the state using the default validator
@@ -1202,7 +1202,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 			bc.reportBlock(block, receipts, err)
 			return i, events, coalescedLogs, err
 		}
-		blockValidateStateTimer = UpdateSince(validateStateStart)
+		blockValidateStateTimer.UpdateSince(validateStateStart)
 
 		proctime := time.Since(bstart)
 
