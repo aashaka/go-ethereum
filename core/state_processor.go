@@ -27,6 +27,13 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
+var (
+	totalApplyTransactionTimer = metrics.NewRegisteredTimer("processor/applyTransaction", nil)
+	stateUpdateTimer = metrics.NewRegisteredTimer("processor/stateUpdate", nil)
+	transactionApplyTimer = metrics.NewRegisteredTimer("processor/transactionApply", nil)
+	receiptCreationTimer = metrics.NewRegisteredTimer("processor/receiptCreate", nil)
+)
+
 // StateProcessor is a basic Processor, which takes care of transitioning
 // state from one point to another.
 //
@@ -86,6 +93,8 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 // for the transaction, gas used and an error if the transaction failed,
 // indicating the block was invalid.
 func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, uint64, error) {
+	
+	totstart := time.Now()
 	msg, err := tx.AsMessage(types.MakeSigner(config, header.Number))
 	if err != nil {
 		return nil, 0, err
@@ -95,20 +104,28 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 	// Create a new environment which holds all relevant information
 	// about the transaction and calling mechanisms.
 	vmenv := vm.NewEVM(context, statedb, config, cfg)
+
+	tstart := time.Now()
 	// Apply the transaction to the current state (included in the env)
 	_, gas, failed, err := ApplyMessage(vmenv, msg, gp)
 	if err != nil {
 		return nil, 0, err
 	}
+	transactionApplyTimer.UpdateSince(tstart)
+
 	// Update the state with pending changes
+	sstart := time.Now()
 	var root []byte
 	if config.IsByzantium(header.Number) {
 		statedb.Finalise(true)
 	} else {
 		root = statedb.IntermediateRoot(config.IsEIP158(header.Number)).Bytes()
 	}
+	stateUpdateTimer.UpdateSince(sstart)
 	*usedGas += gas
 
+
+	rTime := time.Now()
 	// Create a new receipt for the transaction, storing the intermediate root and gas used by the tx
 	// based on the eip phase, we're passing whether the root touch-delete accounts.
 	receipt := types.NewReceipt(root, failed, *usedGas)
@@ -121,6 +138,8 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 	// Set the receipt logs and create a bloom for filtering
 	receipt.Logs = statedb.GetLogs(tx.Hash())
 	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
+	receiptCreationTimer.UpdateSince(rTime)
 
+	totalApplyTransactionTimer.UpdateSince(totstart)
 	return receipt, gas, err
 }
