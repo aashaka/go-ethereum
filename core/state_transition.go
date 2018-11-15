@@ -29,6 +29,8 @@ import (
 
 var (
 	errInsufficientBalanceForGas = errors.New("insufficient balance to pay for gas")
+	stateUpdateTimer = metrics.NewRegisteredTimer("transition/stateUpdate", nil)
+	contractRunTimer = metrics.NewRegisteredTimer("transition/contractRun",nil)
 )
 
 /*
@@ -205,6 +207,7 @@ func (st *StateTransition) TransitionDb() (ret []byte, usedGas uint64, failed bo
 		// error.
 		vmerr error
 	)
+	cstart := time.Now()
 	if contractCreation {
 		ret, _, st.gas, vmerr = evm.Create(sender, st.data, st.gas, st.value)
 	} else {
@@ -212,6 +215,7 @@ func (st *StateTransition) TransitionDb() (ret []byte, usedGas uint64, failed bo
 		st.state.SetNonce(msg.From(), st.state.GetNonce(sender.Address())+1)
 		ret, st.gas, vmerr = evm.Call(sender, st.to(), st.data, st.gas, st.value)
 	}
+	contractRunTimer.UpdateSince(cstart)
 	if vmerr != nil {
 		log.Debug("VM returned with error", "err", vmerr)
 		// The only possible consensus-error would be if there wasn't
@@ -222,8 +226,9 @@ func (st *StateTransition) TransitionDb() (ret []byte, usedGas uint64, failed bo
 		}
 	}
 	st.refundGas()
+	sstart := time.Now()
 	st.state.AddBalance(st.evm.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), st.gasPrice))
-
+	stateUpdateTimer.UpdateSince(sstart)
 	return ret, st.gasUsed(), vmerr != nil, err
 }
 
