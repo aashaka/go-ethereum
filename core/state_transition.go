@@ -29,7 +29,7 @@ import (
 
 var (
 	errInsufficientBalanceForGas = errors.New("insufficient balance to pay for gas")
-	stateUpdateTimer = metrics.NewRegisteredTimer("transition/stateUpdate", nil)
+	stateModTimer = metrics.NewRegisteredTimer("transition/stateMod", nil)
 	contractRunTimer = metrics.NewRegisteredTimer("transition/contractRun",nil)
 )
 
@@ -228,7 +228,7 @@ func (st *StateTransition) TransitionDb() (ret []byte, usedGas uint64, failed bo
 	st.refundGas()
 	sstart := time.Now()
 	st.state.AddBalance(st.evm.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), st.gasPrice))
-	stateUpdateTimer.UpdateSince(sstart)
+	stateModTimer.UpdateSince(sstart)
 	return ret, st.gasUsed(), vmerr != nil, err
 }
 
